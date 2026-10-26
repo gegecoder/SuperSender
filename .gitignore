@@ -1,0 +1,10 @@
+# Task cache
+.task
+build/bin/
+build/*/temp/
+build/*/build/
+
+# Frontend
+frontend/node_modules
+frontend/dist/*
+!frontend/dist/.gitkeep

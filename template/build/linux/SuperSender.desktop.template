@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=${name}
+Exec=${name}
+Icon=${name}
+Categories=Network;
+Terminal=false
+Keywords=network;tcp;udp;test;
+Version=1.0
+StartupNotify=false
+StartupWMClass=${productIdentifier}

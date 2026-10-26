@@ -1,0 +1,111 @@
+version: '3'
+
+tasks:
+  go:mod:tidy:
+    summary: Runs `go mod tidy`
+    internal: true
+    # Universal/multi-arch builds invoke this concurrently from parallel deps;
+    # two `go mod tidy` processes racing on go.mod can corrupt it.
+    run: once
+    cmds:
+      - go mod tidy
+
+  install:frontend:deps:
+    summary: Install frontend dependencies
+    run: once
+    cmds:
+      - task: install:frontend:deps:npm
+
+  install:frontend:deps:npm:
+    dir: frontend
+    sources:
+      - package.json
+      - package-lock.json
+    generates:
+      - node_modules
+    cmds:
+      - cmd: npm.cmd install
+        platforms: [windows]
+      - cmd: npm install
+        platforms: [linux, darwin]
+
+  build:frontend:
+    summary: Build the frontend project
+    # darwin:build:universal runs its per-arch builds as parallel deps, each of
+    # which depends on this task. Without run:once the two executions race.
+    run: once
+    dir: frontend
+    # 不设 sources/generates，强制每次构建都重建前端，避免旧 dist 缓存
+    deps:
+      - task: install:frontend:deps
+      - task: generate:bindings
+        vars:
+          BUILD_FLAGS:
+            ref: .BUILD_FLAGS
+          OBFUSCATED:
+            ref: .OBFUSCATED
+    cmds:
+      - cmd: powershell -NoProfile -Command "if (Test-Path dist) { Remove-Item -Recurse -Force dist }"
+        platforms: [windows]
+      - cmd: rm -rf dist
+        platforms: [linux, darwin]
+      - cmd: npm.cmd run build -q
+        platforms: [windows]
+      - cmd: npm run build
+        platforms: [linux, darwin]
+    env:
+      PRODUCTION: '{{if eq .DEV "true"}}false{{else}}true{{end}}'
+
+  generate:bindings:
+    summary: Generates bindings for the frontend
+    run: once
+    deps:
+      - task: go:mod:tidy
+    sources:
+      - "**/*.[jt]s"
+      - exclude: frontend/**/*
+      - frontend/bindings/**/*
+      - "**/*.go"
+      - go.mod
+      - go.sum
+    generates:
+      - frontend/bindings/**/*
+    cmds:
+      - wails3 generate bindings -f '{{.BUILD_FLAGS}}' -clean=true{{if eq .OBFUSCATED "true"}} -obfuscated{{end}} -ts
+
+  generate:icons:
+    summary: Generates Windows `.ico` and macOS `.icns` from build/icon.png
+    run: once
+    dir: build
+    sources:
+      - "icon.png"
+    generates:
+      - "darwin/icon.icns"
+      - "windows/icon.ico"
+    cmds:
+      - wails3 generate icons -input icon.png -macfilename darwin/icon.icns -windowsfilename windows/icon.ico
+
+  dev:frontend:
+    summary: Runs the frontend in development mode
+    deps:
+      - task: install:frontend:deps
+    dir: frontend
+    cmds:
+      - cmd: npm.cmd run dev -- --port {{.VITE_PORT}} --strictPort
+        platforms: [windows]
+      - cmd: npm run dev -- --port {{.VITE_PORT}} --strictPort
+        platforms: [linux, darwin]
+
+  update:build-assets:
+    summary: Updates the build assets
+    dir: build
+    cmds:
+      - wails3 update build-assets -name "{{.APP_NAME}}" -binaryname "{{.APP_NAME}}" -config config.yml -dir .
+
+  setup:docker:
+    summary: Builds Docker image for cross-compilation (~800MB download)
+    cmds:
+      - docker build -t wails-cross --build-arg SKIP_CROSS_TOOLS={{.SKIP_CROSS_TOOLS | default "false"}} -f build/docker/Dockerfile.cross build/docker/
+    preconditions:
+      - sh: docker info > /dev/null 2>&1
+        msg: "Docker is required. Please install Docker first."

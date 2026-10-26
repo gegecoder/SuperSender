@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=SuperSender
+Exec=SuperSender
+Icon=SuperSender
+Categories=Network;
+Terminal=false
+Keywords=network;tcp;udp;test;
+Version=1.0
+StartupNotify=false
+StartupWMClass=com.supersender.net

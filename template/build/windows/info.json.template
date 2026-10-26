@@ -1,0 +1,15 @@
+{
+	"fixed": {
+		"file_version": "${version}"
+	},
+	"info": {
+		"0409": {
+			"ProductVersion": "${version}",
+			"CompanyName": "${companyName}",
+			"FileDescription": "${fileDescription}",
+			"LegalCopyright": "${copyright}",
+			"ProductName": "${name}",
+			"Comments": "${comments}"
+		}
+	}
+}

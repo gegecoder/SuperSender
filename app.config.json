@@ -1,0 +1,25 @@
+{
+  "name": "SuperSender",
+  "description": "运维测试助手",
+  "version": "1.2.1",
+  "companyName": "心歌",
+  "productIdentifier": "com.supersender.net",
+  "fileDescription": "网络发包测试工具",
+  "copyright": "(c) 2026, 心歌",
+  "homepage": "https://gitcode.com/qq_23994787/SuperSender",
+  "comments": "运维测试助手",
+  "branding": {
+    "brandSub": "运维测试助手",
+    "welcomeTitle": "欢迎使用 SuperSender",
+    "welcomeSub": "运维测试助手"
+  },
+  "author": {
+    "name": "心歌",
+    "email": "eclipse8@qq.com",
+    "blog": "https://kevin.blog.csdn.net"
+  },
+  "update": {
+    "apiUrl": "https://api.gitcode.com/api/v5/repos/qq_23994787/SuperSender/releases/latest",
+    "releasePageBase": "https://gitcode.com/qq_23994787/SuperSender/releases/"
+  }
+}

@@ -1,0 +1,1152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SuperSender · 网络收发 一手掌控</title>
+  <meta name="description" content="SuperSender 是一款基于 Wails v3 的桌面网络发包 / 压测 / 报文监听工具，把 Syslog、TCP、UDP 的客户端与服务端收进同一个原生窗口。" />
+  <script>
+    // 语言探测引导：localStorage 优先，否则按浏览器语言；英文环境先隐藏页面，等 i18n 渲染完成再显示，避免中文闪烁
+    (function () {
+      var saved = localStorage.getItem('SuperSender.lang');
+      var lang = saved === 'en' || saved === 'zh'
+        ? saved
+        : (navigator.language || 'zh').toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en';
+      document.documentElement.lang = lang === 'en' ? 'en' : 'zh-CN';
+      window.__lang = lang;
+      if (lang === 'en') {
+        var s = document.createElement('style');
+        s.id = 'lang-bootstrap';
+        s.textContent = 'body{visibility:hidden}';
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
+  <style>
+    :root {
+      --brand: #3b82f6;
+      --brand-deep: #1d4ed8;
+      --brand-soft: #eff6ff;
+      --ink: #1f2329;
+      --ink-soft: #4e5969;
+      --ink-mute: #86909c;
+      --bg: #ffffff;
+      --bg-soft: #f7f8fa;
+      --line: #e5e6eb;
+      --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.04);
+      --shadow-md: 0 12px 32px rgba(0, 0, 0, 0.08);
+      --shadow-lg: 0 24px 64px rgba(59, 130, 246, 0.18);
+      --radius: 14px;
+      --radius-sm: 8px;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+        "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    a { color: inherit; text-decoration: none; }
+    img { max-width: 100%; display: block; }
+
+    .container {
+      width: 100%;
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* ============== 顶部导航 ============== */
+    .nav {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background: rgba(255, 255, 255, 0.85);
+      backdrop-filter: saturate(180%) blur(14px);
+      -webkit-backdrop-filter: saturate(180%) blur(14px);
+      border-bottom: 1px solid var(--line);
+    }
+    .nav__inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 64px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+    .brand__logo {
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    .brand__logo img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .brand small {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--ink-mute);
+      letter-spacing: 0;
+    }
+    .nav__links {
+      display: flex;
+      align-items: center;
+      gap: 28px;
+      font-size: 14px;
+      color: var(--ink-soft);
+    }
+    .nav__links a:hover { color: var(--brand-deep); }
+    .nav__lang {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      color: var(--ink-soft);
+      background: transparent;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      cursor: pointer;
+      transition: color 0.2s, border-color 0.2s;
+      font-family: inherit;
+    }
+    .nav__lang:hover { color: var(--brand-deep); border-color: var(--brand); }
+    .nav__lang svg { width: 14px; height: 14px; }
+
+    /* ============== Hero ============== */
+    .hero {
+      position: relative;
+      padding: 96px 0 72px;
+      overflow: hidden;
+      background:
+        radial-gradient(1100px 480px at 80% -10%, rgba(59, 130, 246, 0.12), transparent 60%),
+        radial-gradient(900px 420px at 0% 10%, rgba(29, 78, 216, 0.08), transparent 55%),
+        var(--bg);
+    }
+    .hero__grid {
+      display: grid;
+      grid-template-columns: 1.05fr 1fr;
+      gap: 56px;
+      align-items: center;
+    }
+    .hero__title {
+      font-size: clamp(36px, 5.4vw, 64px);
+      line-height: 1.1;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 20px;
+    }
+    .hero__title em {
+      font-style: normal;
+      background: linear-gradient(120deg, var(--brand) 0%, var(--brand-deep) 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .hero__sub {
+      font-size: clamp(15px, 1.6vw, 18px);
+      color: var(--ink-soft);
+      max-width: 540px;
+      margin-bottom: 36px;
+    }
+    .hero__cta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      margin-bottom: 32px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 13px 26px;
+      border-radius: 999px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: transform 0.2s, box-shadow 0.2s, background 0.2s;
+    }
+    .btn--primary {
+      background: var(--brand);
+      color: #fff;
+      box-shadow: 0 8px 20px rgba(59, 130, 246, 0.35);
+    }
+    .btn--primary:hover { background: var(--brand-deep); transform: translateY(-2px); }
+    .btn--ghost {
+      background: #fff;
+      color: var(--ink);
+      border: 1px solid var(--line);
+    }
+    .btn--ghost:hover { border-color: var(--brand); color: var(--brand-deep); }
+    .btn svg { width: 18px; height: 18px; }
+
+    .hero__meta {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      font-size: 13px;
+      color: var(--ink-mute);
+      flex-wrap: wrap;
+    }
+    .hero__meta .sep { width: 4px; height: 4px; border-radius: 50%; background: var(--ink-mute); opacity: 0.5; }
+
+    .hero__shot {
+      position: relative;
+      border-radius: 18px;
+      box-shadow: var(--shadow-lg);
+      overflow: hidden;
+      border: 1px solid var(--line);
+      background: #fff;
+      aspect-ratio: 1009 / 633;
+    }
+    .hero__shot::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 18px;
+      pointer-events: none;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+      z-index: 2;
+    }
+    /* 轮播图层：绝对定位叠加，opacity 切换 */
+    .hero__shot-img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      opacity: 0;
+      transition: opacity 0.6s ease;
+      z-index: 1;
+    }
+    .hero__shot-img.is-active { opacity: 1; }
+    .hero__dots {
+      position: absolute;
+      left: 50%;
+      bottom: 14px;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 8px;
+      z-index: 3;
+    }
+    .hero__dot {
+      width: 8px;
+      height: 8px;
+      padding: 0;
+      border: none;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.65);
+      box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
+      cursor: pointer;
+      transition: background 0.2s, transform 0.2s;
+    }
+    .hero__dot:hover { background: #fff; }
+    .hero__dot.is-active {
+      background: var(--brand);
+      transform: scale(1.25);
+    }
+
+    /* ============== 通用区块 ============== */
+    .section { padding: 96px 0; }
+    .section--soft { background: var(--bg-soft); }
+    .section__head {
+      text-align: center;
+      max-width: 720px;
+      margin: 0 auto 56px;
+    }
+    .section__eyebrow {
+      display: inline-block;
+      padding: 4px 12px;
+      background: var(--brand-soft);
+      color: var(--brand-deep);
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.4px;
+      margin-bottom: 16px;
+    }
+    .section__title {
+      font-size: clamp(28px, 3.6vw, 40px);
+      line-height: 1.2;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+      margin-bottom: 16px;
+    }
+    .section__desc {
+      font-size: 16px;
+      color: var(--ink-soft);
+    }
+
+    /* ============== 特性 ============== */
+    .features {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+    }
+    .feature {
+      padding: 32px 28px;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      transition: transform 0.25s, box-shadow 0.25s, border-color 0.25s;
+    }
+    .feature:hover {
+      transform: translateY(-4px);
+      box-shadow: var(--shadow-md);
+      border-color: transparent;
+    }
+    .feature__icon {
+      width: 48px; height: 48px;
+      border-radius: 12px;
+      background: var(--brand-soft);
+      color: var(--brand-deep);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 20px;
+    }
+    .feature__icon svg { width: 24px; height: 24px; }
+    .feature__title {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+    .feature__desc {
+      font-size: 14px;
+      color: var(--ink-soft);
+    }
+
+    /* ============== 协议支持 ============== */
+    .protocols {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+    }
+    .proto {
+      position: relative;
+      padding: 28px 26px 30px;
+      border-radius: var(--radius);
+      background: #fff;
+      border: 1px solid var(--line);
+      overflow: hidden;
+      transition: transform 0.25s, box-shadow 0.25s;
+    }
+    .proto:hover { transform: translateY(-4px); box-shadow: var(--shadow-md); }
+    .proto__bar {
+      position: absolute;
+      left: 0; top: 0;
+      width: 4px; height: 100%;
+      background: linear-gradient(180deg, var(--brand) 0%, var(--brand-deep) 100%);
+      opacity: 0.85;
+    }
+    .proto__num {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--brand);
+      letter-spacing: 0.4px;
+      margin-bottom: 8px;
+    }
+    .proto__title { font-size: 20px; font-weight: 800; margin-bottom: 8px; }
+    .proto__desc { font-size: 14px; color: var(--ink-soft); margin-bottom: 18px; }
+    .proto__role { padding-top: 14px; border-top: 1px dashed var(--line); }
+    .proto__role + .proto__role { margin-top: 14px; }
+    .proto__role strong {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      color: var(--brand-deep);
+      margin-bottom: 6px;
+    }
+    .proto__role span { display: block; font-size: 13px; color: var(--ink-soft); }
+
+    /* ============== 技术架构 ============== */
+    .arch {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 56px;
+      align-items: center;
+    }
+    .arch__list { list-style: none; }
+    .arch__list li {
+      display: flex;
+      gap: 14px;
+      padding: 18px 0;
+      border-bottom: 1px dashed var(--line);
+    }
+    .arch__list li:last-child { border-bottom: none; }
+    .arch__check {
+      flex-shrink: 0;
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      background: var(--brand-soft);
+      color: var(--brand-deep);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .arch__check svg { width: 16px; height: 16px; }
+    .arch__text strong { display: block; font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+    .arch__text span { font-size: 14px; color: var(--ink-soft); }
+
+    .arch__panel {
+      padding: 40px;
+      background: linear-gradient(135deg, #f0f6ff 0%, #e8f0fe 100%);
+      border-radius: 20px;
+      border: 1px solid rgba(59, 130, 246, 0.18);
+      text-align: center;
+    }
+    .arch__panel .pill {
+      display: inline-block;
+      padding: 6px 14px;
+      background: #fff;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--brand-deep);
+      margin-bottom: 20px;
+      box-shadow: var(--shadow-sm);
+    }
+    .arch__panel h3 {
+      font-size: 28px;
+      font-weight: 800;
+      margin-bottom: 12px;
+    }
+    .arch__panel p { color: var(--ink-soft); font-size: 14px; max-width: 380px; margin: 0 auto; }
+
+    /* ============== 下载 ============== */
+    .download {
+      background:
+        radial-gradient(900px 400px at 50% 0%, rgba(59, 130, 246, 0.16), transparent 60%),
+        var(--bg);
+      text-align: center;
+    }
+    .download__card {
+      max-width: 80%;
+      margin: 0 auto;
+      padding: 56px 40px;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      box-shadow: var(--shadow-md);
+    }
+    .download__version {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      background: var(--brand-soft);
+      color: var(--brand-deep);
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 20px;
+    }
+    .download__title {
+      font-size: clamp(28px, 3.6vw, 38px);
+      font-weight: 800;
+      margin-bottom: 14px;
+    }
+    .download__sub {
+      font-size: 15px;
+      color: var(--ink-soft);
+      margin-bottom: 24px;
+    }
+    .download__platforms {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 32px;
+    }
+    .download__platform {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      background: var(--bg-soft);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink);
+    }
+    .download__platform svg { color: var(--brand-deep); flex: none; }
+    .download__platform small {
+      font-weight: 400;
+      color: var(--ink-mute);
+    }
+    .download__btns {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 14px;
+      margin-bottom: 28px;
+    }
+    .download__channels {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 20px;
+      font-size: 13px;
+      color: var(--ink-mute);
+    }
+    .download__channels a { color: var(--brand-deep); }
+    .download__channels a:hover { text-decoration: underline; }
+
+    /* ============== Footer ============== */
+    .footer {
+      padding: 40px 0 32px;
+      background: var(--bg-soft);
+      border-top: 1px solid var(--line);
+      font-size: 13px;
+      color: var(--ink-mute);
+    }
+    .footer__inner {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    .footer__links { display: flex; gap: 20px; }
+    .footer__links a:hover { color: var(--brand-deep); }
+
+    /* ============== 响应式 ============== */
+    @media (max-width: 960px) {
+      .hero { padding: 72px 0 56px; }
+      .hero__grid { grid-template-columns: 1fr; gap: 40px; }
+      .features, .protocols { grid-template-columns: 1fr; }
+      .arch { grid-template-columns: 1fr; gap: 32px; }
+      .section { padding: 72px 0; }
+      .nav__links a { display: none; }
+      .nav__links #langToggle { display: inline-flex; }
+    }
+    @media (max-width: 560px) {
+      .hero__cta { flex-direction: column; align-items: stretch; }
+      .btn { justify-content: center; }
+      .download__card { padding: 40px 24px; max-width: 100%; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 导航 -->
+  <header class="nav">
+    <div class="container nav__inner">
+      <a class="brand" href="#top">
+        <span class="brand__logo" aria-hidden="true">
+          <img src="build/icon.png" alt="SuperSender" />
+        </span>
+        SuperSender
+        <small data-i18n="brand.tag">运维测试助手</small>
+      </a>
+      <nav class="nav__links">
+        <a href="#features" data-i18n="nav.features">特性</a>
+        <a href="#protocols" data-i18n="nav.protocols">协议支持</a>
+        <a href="#arch" data-i18n="nav.arch">技术架构</a>
+        <a href="#download" data-i18n="nav.download">下载</a>
+        <button class="nav__lang" id="langToggle" type="button" aria-label="切换语言 / Switch language">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18"/><path d="M12 3a15 15 0 0 0 0 18"/></svg>
+          <span data-i18n="nav.langLabel">EN</span>
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Hero -->
+  <section class="hero" id="top">
+    <div class="container hero__grid">
+      <div>
+        <h1 class="hero__title" data-i18n-html="hero.title">网络收发<br /><em>一手掌控</em></h1>
+        <p class="hero__sub" data-i18n="hero.sub">
+          SuperSender 是一款面向运维与测试人员的桌面网络工具：把 Syslog / TCP / UDP 的客户端发包与服务端监听收进同一个原生窗口，定速压测、多目标发送、报文模板、实时统计与日志落盘开箱即用。
+        </p>
+        <div class="hero__cta">
+          <a class="btn btn--primary" data-app-link="release" href="https://gitcode.com/qq_23994787/SuperSender/releases/" target="_blank" rel="noopener">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+            <span data-i18n="hero.download">下载</span>
+          </a>
+          <a class="btn btn--ghost" href="#features">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+            <span data-i18n="hero.more">了解功能</span>
+          </a>
+        </div>
+        <div class="hero__meta">
+          <span data-app="version">v1.2.1</span>
+          <span class="sep"></span>
+          <span data-i18n="hero.platform">Windows / macOS / Linux</span>
+          <span class="sep"></span>
+          <span data-i18n="hero.bilingual">中英双语界面</span>
+          <span class="sep"></span>
+          <span data-i18n="hero.opensource">开源 · GitCode</span>
+        </div>
+      </div>
+      <div class="hero__shot" id="heroShot" aria-live="polite">
+        <!-- 由 JS 自动探测 docs/pN.zh.png / docs/pN.en.png 并轮播填充 -->
+      </div>
+    </div>
+  </section>
+
+  <!-- 特性 -->
+  <section class="section section--soft" id="features">
+    <div class="container">
+      <div class="section__head">
+        <span class="section__eyebrow" data-i18n="features.eyebrow">核心能力</span>
+        <h2 class="section__title" data-i18n="features.title">从发一条报文，到压满一条链路</h2>
+        <p class="section__desc" data-i18n="features.desc">不再在脚本、命令行与抓包工具之间来回切换。会话、报文、速率、统计与接收日志都在同一个窗口里完成。</p>
+      </div>
+      <div class="features">
+        <div class="feature">
+          <div class="feature__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/><circle cx="8" cy="7" r="1.4"/><circle cx="15" cy="12" r="1.4"/><circle cx="10" cy="17" r="1.4"/></svg>
+          </div>
+          <h3 class="feature__title" data-i18n="f1.t">三协议 · 六种角色</h3>
+          <p class="feature__desc" data-i18n="f1.d">Syslog、TCP、UDP 各自提供客户端与服务端，新建会话时按「协议 + 模式」两步选定，互不干扰。</p>
+        </div>
+        <div class="feature">
+          <div class="feature__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l5-6 4 3 4-5 5 8"/><path d="M3 21h18"/></svg>
+          </div>
+          <h3 class="feature__title" data-i18n="f2.t">定速压测与多目标</h3>
+          <p class="feature__desc" data-i18n="f2.d">按条数或时长自动停止，速率精确到条/秒；多目标表格批量下发，UDP 还支持全网段广播。</p>
+        </div>
+        <div class="feature">
+          <div class="feature__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M8 8h8"/><path d="M8 12h8"/><path d="M8 16h5"/></svg>
+          </div>
+          <h3 class="feature__title" data-i18n="f3.t">报文模板与变量</h3>
+          <p class="feature__desc" data-i18n="f3.d">10 套内置模板，${date}、${uuid}、${random_hex} 等变量动态生成内容；可直接编辑、加载样本文件或按行循环发送。</p>
+        </div>
+        <div class="feature">
+          <div class="feature__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h4"/><path d="M7 13h8"/><path d="M15 9h2"/></svg>
+          </div>
+          <h3 class="feature__title" data-i18n="f4.t">TCP 分帧自由配置</h3>
+          <p class="feature__desc" data-i18n="f4.d">原始裸流、分隔符、固定长度、长度前缀四种模式，长度头字节数、大小端与长度含义均可对齐业务协议。</p>
+        </div>
+        <div class="feature">
+          <div class="feature__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l4 2"/></svg>
+          </div>
+          <h3 class="feature__title" data-i18n="f5.t">实时统计与速率曲线</h3>
+          <p class="feature__desc" data-i18n="f5.d">累计发送 / 接收、实时速率、字节速率、运行时长与接入终端数一屏可见，曲线随主题切换配色。</p>
+        </div>
+        <div class="feature">
+          <div class="feature__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M8 9l3 3-3 3"/><path d="M13 15h4"/></svg>
+          </div>
+          <h3 class="feature__title" data-i18n="f6.t">接收日志与检索</h3>
+          <p class="feature__desc" data-i18n="f6.d">高吞吐批量渲染、关键字查询高亮、命中结果导出与实时落盘，最近 5000 条随时回看。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 协议支持 -->
+  <section class="section" id="protocols">
+    <div class="container">
+      <div class="section__head">
+        <span class="section__eyebrow" data-i18n="protocols.eyebrow">协议支持</span>
+        <h2 class="section__title" data-i18n="protocols.title">三种协议，收发两端都能测</h2>
+        <p class="section__desc" data-i18n="protocols.desc">同一套操作习惯贯穿所有协议：左侧管理会话，右侧卡片化配置，启动即可观测。</p>
+      </div>
+      <div class="protocols">
+        <div class="proto">
+          <div class="proto__bar"></div>
+          <div class="proto__num">01</div>
+          <h3 class="proto__title">Syslog</h3>
+          <p class="proto__desc" data-i18n="p1.d">面向日志平台的标准 Syslog 收发，内置 RFC3164 封装与发送预览。</p>
+          <div class="proto__role">
+            <strong data-i18n="proto.client">客户端</strong>
+            <span data-i18n="p1.c">Facility / Severity / Hostname / Tag 可调，支持自定义前缀、多目标发送与发送前报文预览。</span>
+          </div>
+          <div class="proto__role">
+            <strong data-i18n="proto.server">服务端</strong>
+            <span data-i18n="p1.s">按网卡绑定监听端口，实时统计接收条数与速率，日志可查询、导出与落盘。</span>
+          </div>
+        </div>
+        <div class="proto">
+          <div class="proto__bar"></div>
+          <div class="proto__num">02</div>
+          <h3 class="proto__title">TCP</h3>
+          <p class="proto__desc" data-i18n="p2.d">长连接收发与监听，覆盖从裸流到长度前缀的常见应用层分帧方式。</p>
+          <div class="proto__role">
+            <strong data-i18n="proto.client">客户端</strong>
+            <span data-i18n="p2.c">连接超时、断线重连、NoDelay 与 KeepAlive 可选，配合分帧配置精确还原业务报文。</span>
+          </div>
+          <div class="proto__role">
+            <strong data-i18n="proto.server">服务端</strong>
+            <span data-i18n="p2.s">多连接并发接收，可限制最大连接数并开启「接收回显」做双向链路自测。</span>
+          </div>
+        </div>
+        <div class="proto">
+          <div class="proto__bar"></div>
+          <div class="proto__num">03</div>
+          <h3 class="proto__title">UDP</h3>
+          <p class="proto__desc" data-i18n="p3.d">无连接报文的快速下发与监听，适合高频小报文与广播场景。</p>
+          <div class="proto__role">
+            <strong data-i18n="proto.client">客户端</strong>
+            <span data-i18n="p3.c">多目标批量发送、广播开关、发送编码可选 UTF-8 / GBK，速率与停止条件同样可配。</span>
+          </div>
+          <div class="proto__role">
+            <strong data-i18n="proto.server">服务端</strong>
+            <span data-i18n="p3.s">绑定指定网卡接收，端口占用自动探测并显示占用进程，启动前即可避开冲突。</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 技术架构 -->
+  <section class="section section--soft" id="arch">
+    <div class="container arch">
+      <div>
+        <div class="section__head" style="text-align:left; margin: 0 0 24px;">
+          <span class="section__eyebrow" data-i18n="arch.eyebrow">技术架构</span>
+          <h2 class="section__title" data-i18n="arch.title">原生桌面，全离线运行</h2>
+          <p class="section__desc" data-i18n="arch.desc">基于 Wails v3 构建，Go 负责网络与系统能力，Vue 3 负责界面，全部资源内置，不依赖 CDN。</p>
+        </div>
+        <ul class="arch__list">
+          <li>
+            <span class="arch__check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></span>
+            <div class="arch__text"><strong data-i18n="a1.t">原生窗口与托盘</strong><span data-i18n="a1.d">系统 WebView 渲染，窗口与托盘图标运行时生成；关闭确认、托盘菜单与退出时自动停止服务。</span></div>
+          </li>
+          <li>
+            <span class="arch__check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></span>
+            <div class="arch__text"><strong data-i18n="a2.t">Go 网络引擎</strong><span data-i18n="a2.d">客户端调度、服务端监听、TCP 分帧编解码、统计采样与端口占用探测全部由 Go 处理，稳定高效。</span></div>
+          </li>
+          <li>
+            <span class="arch__check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></span>
+            <div class="arch__text"><strong data-i18n="a3.t">卡片化前端</strong><span data-i18n="a3.d">Vue 3 + Element Plus + Pinia，任务卡片可拖拽、缩放并保存布局，两种主题随系统偏好切换。</span></div>
+          </li>
+          <li>
+            <span class="arch__check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></span>
+            <div class="arch__text"><strong data-i18n="a4.t">离线可用</strong><span data-i18n="a4.d">Monaco 编辑器、图标与主题全部内置，中英双语即时切换，无网络环境同样完整工作。</span></div>
+          </li>
+        </ul>
+      </div>
+      <div class="arch__panel">
+        <span class="pill">Wails v3</span>
+        <h3>Go × Vue × WebView</h3>
+        <p data-i18n="arch.panel.desc">把网络 I/O 的重活交给 Go，把配置与观测留在清爽的原生界面里。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 下载 -->
+  <section class="section download" id="download">
+    <div class="container">
+      <div class="download__card">
+        <span class="download__version">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+          <span data-app="version">v1.2.1</span>
+        </span>
+        <h2 class="download__title" data-i18n="download.title">开始你的网络测试</h2>
+        <p class="download__sub" data-i18n="download.sub">从 GitCode 获取最新发布版：Windows 单文件 exe、macOS 通用 dmg、Linux AppImage / deb / rpm，开箱即用，无需安装依赖或命令行环境。</p>
+        <div class="download__platforms">
+          <span class="download__platform">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 18v3"/></svg>
+            Windows<small data-i18n="platform.win"> 单文件 .exe </small>
+          </span>
+          <span class="download__platform">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="12" rx="1.5"/><path d="M2 20h20"/></svg>
+            macOS<small data-i18n="platform.mac"> 通用 .dmg </small>
+          </span>
+          <span class="download__platform">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3"/><path d="M13 15h4"/></svg>
+            Linux<small data-i18n="platform.linux"> AppImage / deb / rpm </small>
+          </span>
+        </div>
+        <div class="download__btns">
+          <a class="btn btn--primary" data-app-link="release" href="https://gitcode.com/qq_23994787/SuperSender/releases/" target="_blank" rel="noopener">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+            <span data-i18n="download.btn">下载最新版</span>
+          </a>
+          <a class="btn btn--ghost" data-app-link="repo" href="https://gitcode.com/qq_23994787/SuperSender" target="_blank" rel="noopener">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-4 1.5-4-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></svg>
+            <span data-i18n="download.repo">查看源码</span>
+          </a>
+        </div>
+        <div class="download__channels">
+          <span><span data-i18n="channel.changelog">更新日志：</span><a data-app-link="release" href="https://gitcode.com/qq_23994787/SuperSender/releases/" target="_blank" rel="noopener">GitCode Releases</a></span>
+          <span><span data-i18n="channel.repo">项目仓库：</span><a data-app-link="repo" href="https://gitcode.com/qq_23994787/SuperSender" target="_blank" rel="noopener">GitCode</a></span>
+          <span><span data-i18n="channel.blog">作者博客：</span><a data-app-link="blog" href="https://kevin.blog.csdn.net" target="_blank" rel="noopener" data-i18n="channel.blogName">心歌的博客</a></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container footer__inner">
+      <span><span data-app="copyright">© 2026 心歌</span><span data-i18n="footer.suffix"> · SuperSender · 网络收发 一手掌控</span></span>
+      <div class="footer__links">
+        <a data-app-link="release" href="https://gitcode.com/qq_23994787/SuperSender/releases/" target="_blank" rel="noopener">Releases</a>
+        <a data-app-link="repo" href="https://gitcode.com/qq_23994787/SuperSender" target="_blank" rel="noopener">GitCode</a>
+        <a data-app-link="blog" href="https://kevin.blog.csdn.net" target="_blank" rel="noopener" data-i18n="footer.blog">博客</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // ============ i18n 中英文切换（data-i18n / data-i18n-html + 内置字典 + localStorage 记忆） ============
+    var I18N = {
+      zh: {
+        'nav.langLabel': 'EN',
+        'nav.features': '特性',
+        'nav.protocols': '协议支持',
+        'nav.arch': '技术架构',
+        'nav.download': '下载',
+        'brand.tag': '运维测试助手',
+        'hero.title': '网络收发<br /><em>一手掌控</em>',
+        'hero.sub': 'SuperSender 是一款面向运维与测试人员的桌面网络工具：把 Syslog / TCP / UDP 的客户端发包与服务端监听收进同一个原生窗口，定速压测、多目标发送、报文模板、实时统计与日志落盘开箱即用。',
+        'hero.download': '下载',
+        'hero.more': '了解功能',
+        'hero.platform': 'Windows / macOS / Linux',
+        'hero.bilingual': '中英双语界面',
+        'hero.opensource': '开源 · GitCode',
+        'hero.shotAlt': 'SuperSender 界面预览',
+        'hero.dot': '切换到第 {n} 张',
+        'features.eyebrow': '核心能力',
+        'features.title': '从发一条报文，到压满一条链路',
+        'features.desc': '不再在脚本、命令行与抓包工具之间来回切换。会话、报文、速率、统计与接收日志都在同一个窗口里完成。',
+        'f1.t': '三协议 · 六种角色',
+        'f1.d': 'Syslog、TCP、UDP 各自提供客户端与服务端，新建会话时按「协议 + 模式」两步选定，互不干扰。',
+        'f2.t': '定速压测与多目标',
+        'f2.d': '按条数或时长自动停止，速率精确到条/秒；多目标表格批量下发，UDP 还支持全网段广播。',
+        'f3.t': '报文模板与变量',
+        'f3.d': '10 套内置模板，${date}、${uuid}、${random_hex} 等变量动态生成内容；可直接编辑、加载样本文件或按行循环发送。',
+        'f4.t': 'TCP 分帧自由配置',
+        'f4.d': '原始裸流、分隔符、固定长度、长度前缀四种模式，长度头字节数、大小端与长度含义均可对齐业务协议。',
+        'f5.t': '实时统计与速率曲线',
+        'f5.d': '累计发送 / 接收、实时速率、字节速率、运行时长与接入终端数一屏可见，曲线随主题切换配色。',
+        'f6.t': '接收日志与检索',
+        'f6.d': '高吞吐批量渲染、关键字查询高亮、命中结果导出与实时落盘，最近 5000 条随时回看。',
+        'protocols.eyebrow': '协议支持',
+        'protocols.title': '三种协议，收发两端都能测',
+        'protocols.desc': '同一套操作习惯贯穿所有协议：左侧管理会话，右侧卡片化配置，启动即可观测。',
+        'proto.client': '客户端',
+        'proto.server': '服务端',
+        'p1.d': '面向日志平台的标准 Syslog 收发，内置 RFC3164 封装与发送预览。',
+        'p1.c': 'Facility / Severity / Hostname / Tag 可调，支持自定义前缀、多目标发送与发送前报文预览。',
+        'p1.s': '按网卡绑定监听端口，实时统计接收条数与速率，日志可查询、导出与落盘。',
+        'p2.d': '长连接收发与监听，覆盖从裸流到长度前缀的常见应用层分帧方式。',
+        'p2.c': '连接超时、断线重连、NoDelay 与 KeepAlive 可选，配合分帧配置精确还原业务报文。',
+        'p2.s': '多连接并发接收，可限制最大连接数并开启「接收回显」做双向链路自测。',
+        'p3.d': '无连接报文的快速下发与监听，适合高频小报文与广播场景。',
+        'p3.c': '多目标批量发送、广播开关、发送编码可选 UTF-8 / GBK，速率与停止条件同样可配。',
+        'p3.s': '绑定指定网卡接收，端口占用自动探测并显示占用进程，启动前即可避开冲突。',
+        'arch.eyebrow': '技术架构',
+        'arch.title': '原生桌面，全离线运行',
+        'arch.desc': '基于 Wails v3 构建，Go 负责网络与系统能力，Vue 3 负责界面，全部资源内置，不依赖 CDN。',
+        'a1.t': '原生窗口与托盘',
+        'a1.d': '系统 WebView 渲染，窗口与托盘图标运行时生成；关闭确认、托盘菜单与退出时自动停止服务。',
+        'a2.t': 'Go 网络引擎',
+        'a2.d': '客户端调度、服务端监听、TCP 分帧编解码、统计采样与端口占用探测全部由 Go 处理，稳定高效。',
+        'a3.t': '卡片化前端',
+        'a3.d': 'Vue 3 + Element Plus + Pinia，任务卡片可拖拽、缩放并保存布局，两种主题随系统偏好切换。',
+        'a4.t': '离线可用',
+        'a4.d': 'Monaco 编辑器、图标与主题全部内置，中英双语即时切换，无网络环境同样完整工作。',
+        'arch.panel.desc': '把网络 I/O 的重活交给 Go，把配置与观测留在清爽的原生界面里。',
+        'download.title': '开始你的网络测试',
+        'download.sub': '从 GitCode 获取最新发布版：Windows 单文件 exe、macOS 通用 dmg、Linux AppImage / deb / rpm，开箱即用，无需安装依赖或命令行环境。',
+        'platform.win': ' 单文件 .exe ',
+        'platform.mac': ' 通用 .dmg ',
+        'platform.linux': ' AppImage / deb / rpm ',
+        'download.btn': '下载最新版',
+        'download.repo': '查看源码',
+        'channel.changelog': '更新日志：',
+        'channel.repo': '项目仓库：',
+        'channel.blog': '作者博客：',
+        'channel.blogName': '心歌的博客',
+        'footer.suffix': ' · SuperSender · 网络收发 一手掌控',
+        'footer.blog': '博客',
+        'brandTag': '网络收发 一手掌控',
+        'metaDesc': 'SuperSender 是一款基于 Wails v3 的桌面网络发包 / 压测 / 报文监听工具，把 Syslog、TCP、UDP 的客户端与服务端收进同一个原生窗口。'
+      },
+      en: {
+        'nav.langLabel': '中',
+        'nav.features': 'Features',
+        'nav.protocols': 'Protocols',
+        'nav.arch': 'Architecture',
+        'nav.download': 'Download',
+        'brand.tag': 'Ops Testing Toolkit',
+        'hero.title': 'Send and Receive<br /><em>Under Control</em>',
+        'hero.sub': 'SuperSender is a desktop network toolkit for ops and QA engineers. It brings Syslog, TCP and UDP clients and servers into one native window — paced load testing, multi-target sending, message templates, live statistics and log persistence, ready out of the box.',
+        'hero.download': 'Download',
+        'hero.more': 'Explore Features',
+        'hero.platform': 'Windows / macOS / Linux',
+        'hero.bilingual': 'Chinese & English UI',
+        'hero.opensource': 'Open Source · GitCode',
+        'hero.shotAlt': 'SuperSender screenshot',
+        'hero.dot': 'Go to screenshot {n}',
+        'features.eyebrow': 'CORE CAPABILITIES',
+        'features.title': 'From a single packet to a saturated link',
+        'features.desc': 'No more jumping between scripts, shells and packet tools. Sessions, payloads, rates, statistics and receive logs all live in one window.',
+        'f1.t': '3 protocols, 6 roles',
+        'f1.d': 'Syslog, TCP and UDP each offer a client and a server; pick protocol and mode in two steps when creating a session.',
+        'f2.t': 'Paced load testing',
+        'f2.d': 'Stop automatically after a count or duration with precise per-second rates; send to many targets at once, and broadcast with UDP.',
+        'f3.t': 'Templates & variables',
+        'f3.d': '10 built-in templates with ${date}, ${uuid}, ${random_hex} and more; edit directly, load a sample file, or send line by line.',
+        'f4.t': 'Configurable TCP framing',
+        'f4.d': 'Raw stream, delimiter, fixed length and length prefix — align header size, endianness and length semantics with your protocol.',
+        'f5.t': 'Live statistics & rate chart',
+        'f5.d': 'Total sent and received, live message rate, byte rate, uptime and connected clients on one screen, themed with the app.',
+        'f6.t': 'Receive logs & search',
+        'f6.d': 'High-throughput batched rendering, keyword search with highlights, export of hits and real-time persistence, keeping the latest 5000 entries.',
+        'protocols.eyebrow': 'PROTOCOLS',
+        'protocols.title': 'Three protocols, both ends testable',
+        'protocols.desc': 'One workflow across every protocol: sessions on the left, card-based configuration on the right, observe as soon as you start.',
+        'proto.client': 'Client',
+        'proto.server': 'Server',
+        'p1.d': 'Standard Syslog sending and receiving for log platforms, with RFC3164 wrapping and payload preview.',
+        'p1.c': 'Adjustable Facility / Severity / Hostname / Tag, custom prefix, multi-target sending and a preview of the final payload.',
+        'p1.s': 'Bind to a NIC and port, watch live counts and rates, then search, export or persist the received logs.',
+        'p2.d': 'Long-lived connections for sending and listening, covering common application framing from raw streams to length prefixes.',
+        'p2.c': 'Dial timeout, auto reconnect, NoDelay and KeepAlive options, plus framing settings that mirror your protocol.',
+        'p2.s': 'Concurrent multi-connection receiving with an optional connection limit and echo-back for two-way link testing.',
+        'p3.d': 'Fast delivery and listening of connectionless datagrams, ideal for high-frequency small messages and broadcast.',
+        'p3.c': 'Multi-target sending, broadcast toggle and UTF-8 / GBK encoding, with the same rate and stop conditions.',
+        'p3.s': 'Listen on a selected NIC; port occupancy is probed automatically and the owning process is shown before you start.',
+        'arch.eyebrow': 'ARCHITECTURE',
+        'arch.title': 'Native desktop, fully offline',
+        'arch.desc': 'Built with Wails v3: Go powers networking and system integration, Vue 3 powers the UI, and every asset is bundled — no CDN.',
+        'a1.t': 'Native window & tray',
+        'a1.d': 'Rendered by the system WebView, with window and tray icons generated at runtime; close confirmation, tray menu, and services stopped on exit.',
+        'a2.t': 'Go network engine',
+        'a2.d': 'Client scheduling, server listeners, TCP framing codecs, statistics sampling and port probing all run in Go — stable and efficient.',
+        'a3.t': 'Card-based frontend',
+        'a3.d': 'Vue 3 + Element Plus + Pinia; task cards can be dragged, resized and saved, with light and dark themes following the system.',
+        'a4.t': 'Works offline',
+        'a4.d': 'Monaco editor, icons and themes are all bundled, and the UI switches between Chinese and English instantly without a network.',
+        'arch.panel.desc': 'Heavy network I/O in Go, configuration and observation in a clean native interface.',
+        'download.title': 'Start your network testing',
+        'download.sub': 'Get the latest release from GitCode — single-file exe for Windows, universal dmg for macOS, AppImage / deb / rpm for Linux, ready out of the box.',
+        'platform.win': ' Single .exe ',
+        'platform.mac': ' Universal .dmg ',
+        'platform.linux': ' AppImage / deb / rpm ',
+        'download.btn': 'Download Latest',
+        'download.repo': 'View Source',
+        'channel.changelog': 'Changelog: ',
+        'channel.repo': 'Repository: ',
+        'channel.blog': "Author's blog: ",
+        'channel.blogName': "XinGe's Blog",
+        'footer.suffix': ' · SuperSender · Send and Receive Under Control',
+        'footer.blog': 'Blog',
+        'brandTag': 'Send and Receive Under Control',
+        'metaDesc': 'SuperSender is a native desktop tool built with Wails v3 for network sending, load testing and message monitoring, combining Syslog, TCP and UDP clients and servers in one window.'
+      }
+    };
+
+    function currentLang() {
+      return window.__lang === 'en' ? 'en' : 'zh';
+    }
+
+    function t(key, vars) {
+      var s = (I18N[currentLang()] && I18N[currentLang()][key]) || I18N.zh[key] || key;
+      if (vars) {
+        Object.keys(vars).forEach(function (k) {
+          s = s.replace(new RegExp('\\{' + k + '\\}', 'g'), vars[k]);
+        });
+      }
+      return s;
+    }
+
+    function applyLanguage(lang) {
+      window.__lang = lang === 'en' ? 'en' : 'zh';
+      var dict = I18N[window.__lang];
+      document.querySelectorAll('[data-i18n]').forEach(function (el) {
+        var key = el.getAttribute('data-i18n');
+        if (dict[key] != null) el.textContent = dict[key];
+      });
+      document.querySelectorAll('[data-i18n-html]').forEach(function (el) {
+        var key = el.getAttribute('data-i18n-html');
+        if (dict[key] != null) el.innerHTML = dict[key];
+      });
+      var meta = document.querySelector('meta[name="description"]');
+      if (meta && dict.metaDesc) meta.content = dict.metaDesc;
+      var name = (window.__appConfig && window.__appConfig.name) || 'SuperSender';
+      document.title = name + ' · ' + dict.brandTag;
+      document.documentElement.lang = window.__lang === 'en' ? 'en' : 'zh-CN';
+      document.querySelectorAll('.hero__shot-img').forEach(function (img, i) {
+        img.alt = t('hero.shotAlt') + ' ' + (i + 1);
+      });
+      document.querySelectorAll('.hero__dot').forEach(function (d, i) {
+        d.setAttribute('aria-label', t('hero.dot', { n: i + 1 }));
+      });
+      // 语言切换时重建 Hero 轮播截图（英文使用 docs/pN.en.png）
+      if (typeof window.__setHeroLang === 'function') {
+        window.__setHeroLang(window.__lang);
+      }
+      try { localStorage.setItem('SuperSender.lang', window.__lang); } catch (e) {}
+      var boot = document.getElementById('lang-bootstrap');
+      if (boot) boot.remove();
+    }
+    window.applyLanguage = applyLanguage;
+    window.t = t;
+
+    document.getElementById('langToggle').addEventListener('click', function () {
+      applyLanguage(currentLang() === 'zh' ? 'en' : 'zh');
+    });
+
+    // 从同目录 app.config.json 加载版本号、链接等信息（no-store 保证改完即生效）；
+    // fetch 失败（如 file:// 双击打开）时静默保留 HTML 中的默认值
+    fetch('app.config.json', { cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error('config load failed'); return r.json(); })
+      .then(function (cfg) {
+        window.__appConfig = cfg;
+        if (cfg.version) {
+          document.querySelectorAll('[data-app="version"]').forEach(function (el) {
+            el.textContent = 'v' + cfg.version;
+          });
+        }
+        var links = {
+          release: cfg.update && cfg.update.releasePageBase,
+          repo: 'https://gitcode.com/qq_23994787/SuperSender',
+          blog: cfg.author && cfg.author.blog
+        };
+        Object.keys(links).forEach(function (key) {
+          if (!links[key]) return;
+          document.querySelectorAll('[data-app-link="' + key + '"]').forEach(function (a) {
+            a.href = links[key];
+          });
+        });
+        applyLanguage(currentLang());
+      })
+      .catch(function () { /* 保留 HTML 默认值 */ });
+
+    // 首次渲染（应用启动时探测到的语言）
+    applyLanguage(currentLang());
+
+    // 滚动时为导航栏添加阴影
+    (function () {
+      var nav = document.querySelector('.nav');
+      function onScroll() {
+        if (window.scrollY > 8) {
+          nav.style.boxShadow = '0 4px 16px rgba(0,0,0,0.06)';
+        } else {
+          nav.style.boxShadow = 'none';
+        }
+      }
+      window.addEventListener('scroll', onScroll, { passive: true });
+      onScroll();
+    })();
+
+    // Hero 区图片自动探测 + 多图轮播（中英文分别探测 docs/pN.zh.png / docs/pN.en.png）
+    (function () {
+      var shot = document.getElementById('heroShot');
+      if (!shot) return;
+      var builtLang = null;
+      var probeToken = 0;
+      var valid = [];
+      var current = 0;
+      var timer = null;
+
+      function candidatesFor(lang) {
+        var suffix = lang === 'en' ? 'en' : 'zh';
+        return ['docs/p1.' + suffix + '.png', 'docs/p2.' + suffix + '.png', 'docs/p3.' + suffix + '.png'];
+      }
+
+      function render(list, token) {
+        if (token !== probeToken) return;
+        valid = list;
+        current = 0;
+        valid.sort(function (a, b) { return a.idx - b.idx; });
+        shot.innerHTML = '';
+        if (valid.length === 0) return;
+        var f = valid[0];
+        if (f.w && f.h) shot.style.aspectRatio = f.w + ' / ' + f.h;
+        valid.forEach(function (item, i) {
+          var img = document.createElement('img');
+          img.src = item.src;
+          img.alt = t('hero.shotAlt') + ' ' + (i + 1);
+          img.className = 'hero__shot-img' + (i === 0 ? ' is-active' : '');
+          img.loading = 'lazy';
+          shot.appendChild(img);
+        });
+        if (valid.length > 1) {
+          var dots = document.createElement('div');
+          dots.className = 'hero__dots';
+          valid.forEach(function (_, i) {
+            var d = document.createElement('button');
+            d.type = 'button';
+            d.className = 'hero__dot' + (i === 0 ? ' is-active' : '');
+            d.setAttribute('aria-label', t('hero.dot', { n: i + 1 }));
+            d.addEventListener('click', function () {
+              show(i);
+              resetTimer();
+            });
+            dots.appendChild(d);
+          });
+          shot.appendChild(dots);
+          timer = setInterval(next, 5000);
+        }
+      }
+
+      function build(lang) {
+        builtLang = lang;
+        var token = ++probeToken;
+        if (timer) { clearInterval(timer); timer = null; }
+        var candidates = candidatesFor(lang);
+        var found = [];
+        var done = 0;
+        candidates.forEach(function (src, idx) {
+          var img = new Image();
+          img.onload = function () {
+            if (token !== probeToken) return;
+            found.push({ src: src, idx: idx, w: img.naturalWidth, h: img.naturalHeight });
+            if (++done === candidates.length) render(found, token);
+          };
+          img.onerror = function () {
+            if (token !== probeToken) return;
+            if (++done === candidates.length) render(found, token);
+          };
+          img.src = src;
+        });
+      }
+
+      function show(i) {
+        var imgs = shot.querySelectorAll('.hero__shot-img');
+        var dots = shot.querySelectorAll('.hero__dot');
+        imgs.forEach(function (el, idx) { el.classList.toggle('is-active', idx === i); });
+        dots.forEach(function (el, idx) { el.classList.toggle('is-active', idx === i); });
+        current = i;
+      }
+      function next() { show((current + 1) % valid.length); }
+      function resetTimer() { if (timer) { clearInterval(timer); timer = setInterval(next, 5000); } }
+
+      // applyLanguage 的唯一图片切换入口；语言未变时不重复探测
+      window.__setHeroLang = function (lang) {
+        lang = lang === 'en' ? 'en' : 'zh';
+        if (lang === builtLang) return;
+        build(lang);
+      };
+      build(currentLang());
+    })();
+  </script>
+</body>
+</html>

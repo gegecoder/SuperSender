@@ -1,0 +1,131 @@
+version: '3'
+
+vars:
+  APP_NAME: "SuperSender"
+  BIN_DIR: "build/bin"
+  PACKAGE_MANAGER: '{{.PACKAGE_MANAGER | default "npm"}}'
+  VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
+  # Target OS for build/package/run. Defaults to host OS, overridden by
+  # `wails3 build GOOS=...` (or the GOOS env var) for cross-compilation.
+  GOOS: '{{.GOOS | default OS}}'
+  # Per-platform directories resolved from GOOS.
+  TEMP_DIR: '{{if eq .GOOS "windows"}}build/windows/temp{{else if eq .GOOS "darwin"}}build/darwin/temp{{else if eq .GOOS "linux"}}build/linux/temp{{end}}'
+  OUT_DIR: '{{if eq .GOOS "windows"}}build/windows/build{{else if eq .GOOS "darwin"}}build/darwin/build{{else if eq .GOOS "linux"}}build/linux/build{{end}}'
+
+includes:
+  common: ./build/Taskfile.yml
+  windows: ./build/windows/Taskfile.yml
+  linux: ./build/linux/Taskfile.yml
+  darwin: ./build/darwin/Taskfile.yml
+
+tasks:
+  generate:build:config:
+    summary: Generates build config files from templates and app.config.json
+    cmds:
+      - node scripts/generate-build-config.mjs
+
+  generate:linux:icons:
+    summary: Generates hicolor PNG icon set for Linux from build/icon.png
+    cmds:
+      - go run scripts/gen-linux-icons.go
+
+  prepare:dirs:
+    summary: Creates temp and build output directories for the target platform
+    internal: true
+    cmds:
+      - cmd: powershell -Command "New-Item -ItemType Directory -Force -Path {{.TEMP_DIR}}, {{.OUT_DIR}} | Out-Null; exit 0"
+        platforms: [windows]
+      - cmd: mkdir -p {{.TEMP_DIR}} {{.OUT_DIR}}
+        platforms: [linux, darwin]
+
+  build:
+    summary: Builds the application
+    deps:
+      - task: generate:build:config
+      - task: prepare:dirs
+    cmds:
+      - task: "{{.GOOS}}:build"
+
+  package:
+    summary: Packages a production build of the application
+    deps:
+      - task: generate:build:config
+      - task: prepare:dirs
+    cmds:
+      - task: "{{.GOOS}}:package"
+      - task: collect:bin
+
+  package:all:
+    summary: Builds and packages for all platforms and collects to build/bin
+    deps:
+      - task: generate:build:config
+    cmds:
+      # 先清空已收集的旧产物，避免上一轮遗留文件混入本轮打包结果
+      - task: clean:bin
+      # Each platform runs in a separate task process so GOOS is set globally,
+      # ensuring OUT_DIR/TEMP_DIR resolve correctly for all subtasks.
+      - cmd: task windows:package GOOS=windows
+      - cmd: task linux:package GOOS=linux
+      # Universal binary (arm64 + amd64) so one .app runs on Apple Silicon and Intel
+      - cmd: task darwin:package:universal GOOS=darwin
+      - task: collect:bin
+
+  clean:
+    summary: Cleans all build products and temp files from previous builds
+    cmds:
+      - cmd: powershell -Command "Remove-Item -Recurse -Force bin, build/bin, build/windows/temp, build/windows/build, build/linux/temp, build/linux/build, build/darwin/temp, build/darwin/build, '-.o' -ErrorAction SilentlyContinue; exit 0"
+        platforms: [windows]
+      - cmd: rm -rf bin build/bin build/windows/temp build/windows/build build/linux/temp build/linux/build build/darwin/temp build/darwin/build -.o
+        platforms: [linux, darwin]
+
+  clean:bin:
+    summary: Removes previously collected artifacts under build/bin
+    internal: true
+    cmds:
+      - cmd: powershell -Command "Remove-Item -Recurse -Force build/bin -ErrorAction SilentlyContinue; exit 0"
+        platforms: [windows]
+      - cmd: rm -rf build/bin
+        platforms: [linux, darwin]
+
+  # 打包前调用：清除目标平台上一轮的构建产物与已收集产物，
+  # 避免残留的旧文件（例如改名前的 exe/app）混入本轮打包结果。
+  # 注意：根目录 bin 是 Docker 交叉编译容器（Dockerfile.cross）在 /app/bin
+  # 生成中间二进制的目录，中断或并发构建时容易残留，因此一并清除。
+  clean:package:
+    summary: Clears previous build products of the target platform before packaging
+    internal: true
+    cmds:
+      # 先结束仍在运行的旧产物：Windows 上被进程占用的 exe 无法真正删除
+      # （只会被标记为 delete-pending），随后 Move-Item -Force 会报
+      # "Cannot create a file when that file already exists" 导致打包失败。
+      - cmd: powershell -Command "Get-Process -Name '{{.APP_NAME}}*' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500; exit 0"
+        platforms: [windows]
+      - cmd: pkill -x '{{.APP_NAME}}' || true
+        platforms: [linux, darwin]
+      - cmd: powershell -Command "Remove-Item -Recurse -Force '{{.OUT_DIR}}', '{{.TEMP_DIR}}', 'bin', 'build/bin/{{.GOOS}}' -ErrorAction SilentlyContinue; exit 0"
+        platforms: [windows]
+      - cmd: rm -rf "{{.OUT_DIR}}" "{{.TEMP_DIR}}" bin "build/bin/{{.GOOS}}"
+        platforms: [linux, darwin]
+
+  collect:bin:
+    summary: Copies all platform-specific build products to build/bin/<platform>/
+    cmds:
+      - cmd: powershell -Command "New-Item -ItemType Directory -Force -Path build/bin/windows, build/bin/linux, build/bin/darwin | Out-Null; if (Test-Path build/windows/build) { Copy-Item build/windows/build/* build/bin/windows -Recurse -Force }; if (Test-Path build/linux/build) { Copy-Item build/linux/build/* build/bin/linux -Recurse -Force }; if (Test-Path build/darwin/build) { Copy-Item build/darwin/build/* build/bin/darwin -Recurse -Force }; exit 0"
+        platforms: [windows]
+      - cmd: mkdir -p build/bin/windows build/bin/linux build/bin/darwin && for p in windows linux darwin; do [ -d "build/$p/build" ] && cp -r "build/$p"/build/* "build/bin/$p"/ 2>/dev/null; done; true
+        platforms: [linux, darwin]
+
+  run:
+    summary: Runs the application
+    cmds:
+      - task: "{{.GOOS}}:run"
+
+  dev:
+    summary: Runs the application in development mode
+    cmds:
+      - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
+
+  setup:docker:
+    summary: Builds Docker image for cross-compilation (~800MB download)
+    cmds:
+      - task: common:setup:docker

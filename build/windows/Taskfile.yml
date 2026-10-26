@@ -1,0 +1,85 @@
+version: '3'
+
+includes:
+  common: ../Taskfile.yml
+
+tasks:
+  build:
+    summary: Builds the application for Windows
+    cmds:
+      - task: build:native
+        vars:
+          ARCH: '{{.ARCH}}'
+          DEV: '{{.DEV}}'
+    vars:
+      OUT_DIR: build/windows/build
+      TEMP_DIR: build/windows/temp
+
+  build:native:
+    summary: Builds the application using native Go compilation
+    internal: true
+    deps:
+      - task: common:go:mod:tidy
+      - task: common:build:frontend
+        vars:
+          BUILD_FLAGS:
+            ref: .BUILD_FLAGS
+          DEV:
+            ref: .DEV
+      - task: common:generate:icons
+    preconditions:
+      - sh: '{{if eq .OBFUSCATED "true"}}command -v garble >/dev/null 2>&1{{else}}true{{end}}'
+        msg: "garble is required for obfuscated builds. Install it with: go install mvdan.cc/garble@v0.16.0 (requires Go 1.24+)."
+    cmds:
+      - cmd: powershell -Command "New-Item -ItemType Directory -Force -Path {{.TEMP_DIR}}, {{.OUT_DIR}} | Out-Null; exit 0"
+        platforms: [windows]
+      - cmd: mkdir -p {{.TEMP_DIR}} {{.OUT_DIR}}
+        platforms: [linux, darwin]
+      - task: generate:syso
+        vars:
+          ARCH: '{{.ARCH}}'
+      - '{{if eq .OBFUSCATED "true"}}garble {{.GARBLE_ARGS}} build{{else}}go build{{end}} {{.BUILD_FLAGS}} -o "{{.OUT_DIR}}/{{.APP_NAME}}.exe"'
+      - cmd: powershell -Command "Remove-Item *.syso -ErrorAction SilentlyContinue; exit 0"
+        platforms: [windows]
+      - cmd: rm -f *.syso
+        platforms: [linux, darwin]
+    vars:
+      OUT_DIR: build/windows/build
+      TEMP_DIR: build/windows/temp
+      BUILD_FLAGS: '{{if eq .DEV "true"}}{{if or .EXTRA_TAGS (eq .OBFUSCATED "true")}}-tags {{if eq .OBFUSCATED "true"}}wails_obfuscated{{if .EXTRA_TAGS}},{{end}}{{end}}{{.EXTRA_TAGS}} {{end}}-buildvcs=false -gcflags=all="-l" -ldflags="-H windowsgui"{{else}}-tags production{{if eq .OBFUSCATED "true"}},wails_obfuscated{{end}}{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -buildvcs=false -ldflags="-w -s -H windowsgui"{{end}}'
+    env:
+      GOOS: windows
+      CGO_ENABLED: 0
+      GOARCH: '{{.ARCH | default ARCH}}'
+      GOTMPDIR: '{{.ROOT_DIR}}/{{.TEMP_DIR}}'
+
+  package:
+    summary: Packages the Windows executable
+    cmds:
+      # 打包前先清除上一轮的构建产物（含 build/bin/windows），避免旧文件残留
+      - task: :clean:package
+      - task: build
+      # 产物名追加架构信息：SuperSender.exe → SuperSender-<arch>.exe
+      # 用 File.Move 覆盖（先删目标），避免 Move-Item -Force 在目标文件
+      # 处于 delete-pending 状态时报 "Cannot create a file when that file already exists"。
+      - cmd: powershell -Command "if (Test-Path '{{.OUT_DIR}}\{{.APP_NAME}}-{{.ARCH | default ARCH}}.exe') { Remove-Item -Force '{{.OUT_DIR}}\{{.APP_NAME}}-{{.ARCH | default ARCH}}.exe' -ErrorAction SilentlyContinue }; try { [System.IO.File]::Move('{{.OUT_DIR}}\{{.APP_NAME}}.exe','{{.OUT_DIR}}\{{.APP_NAME}}-{{.ARCH | default ARCH}}.exe') } catch { Start-Sleep -Seconds 1; [System.IO.File]::Move('{{.OUT_DIR}}\{{.APP_NAME}}.exe','{{.OUT_DIR}}\{{.APP_NAME}}-{{.ARCH | default ARCH}}.exe') }"
+        platforms: [windows]
+      - cmd: mv -f "{{.OUT_DIR}}/{{.APP_NAME}}.exe" "{{.OUT_DIR}}/{{.APP_NAME}}-{{.ARCH | default ARCH}}.exe"
+        platforms: [linux, darwin]
+    vars:
+      OUT_DIR: build/windows/build
+
+  generate:syso:
+    summary: Generates Windows `.syso` file
+    dir: build
+    cmds:
+      # syso must be in project root for go build to auto-embed; cleaned up after build
+      - wails3 generate syso -arch {{.ARCH}} -icon windows/icon.ico -manifest windows/wails.exe.manifest -info windows/info.json -out ../wails_windows_{{.ARCH}}.syso
+    vars:
+      ARCH: '{{.ARCH | default ARCH}}'
+
+  run:
+    cmds:
+      - '{{.OUT_DIR}}/{{.APP_NAME}}.exe'
+    vars:
+      OUT_DIR: build/windows/build

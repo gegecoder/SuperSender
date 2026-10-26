@@ -1,0 +1,361 @@
+version: '3'
+
+includes:
+  common: ../Taskfile.yml
+
+vars:
+  # Docker image for cross-compilation (used when building on non-macOS)
+  CROSS_IMAGE: wails-cross
+
+  # TEMP_DIR / OUT_DIR are resolved from GOOS in the root Taskfile.
+
+tasks:
+  build:
+    summary: Builds the application
+    deps:
+      - task: :generate:build:config
+    cmds:
+      - task: '{{if eq OS "darwin"}}build:native{{else}}build:docker{{end}}'
+        vars:
+          ARCH: '{{.ARCH}}'
+          DEV: '{{.DEV}}'
+          OUTPUT: '{{.OUTPUT}}'
+          EXTRA_TAGS: '{{.EXTRA_TAGS}}'
+          OBFUSCATED: '{{.OBFUSCATED}}'
+          GARBLE_ARGS: '{{.GARBLE_ARGS}}'
+    vars:
+      OUT_DIR: build/darwin/build
+      TEMP_DIR: build/darwin/temp
+      DEFAULT_OUTPUT: '{{.OUT_DIR}}/{{.APP_NAME}}'
+      OUTPUT: '{{ .OUTPUT | default .DEFAULT_OUTPUT }}'
+
+  build:native:
+    summary: Builds the application natively on macOS
+    internal: true
+    deps:
+      - task: common:go:mod:tidy
+      - task: common:build:frontend
+        vars:
+          BUILD_FLAGS:
+            ref: .BUILD_FLAGS
+          OBFUSCATED:
+            ref: .OBFUSCATED
+          DEV:
+            ref: .DEV
+      - task: common:generate:icons
+    preconditions:
+      - sh: '{{if eq .OBFUSCATED "true"}}command -v garble >/dev/null 2>&1{{else}}true{{end}}'
+        msg: "garble is required for obfuscated builds. Install it with: go install mvdan.cc/garble@v0.16.0 (requires Go 1.24+)."
+    cmds:
+      - cmd: powershell -Command "New-Item -ItemType Directory -Force -Path {{.TEMP_DIR}}, {{.OUT_DIR}} | Out-Null; exit 0"
+        platforms: [windows]
+      - cmd: mkdir -p {{.TEMP_DIR}} {{.OUT_DIR}}
+        platforms: [linux, darwin]
+      - '{{if eq .OBFUSCATED "true"}}garble {{.GARBLE_ARGS}} build{{else}}go build{{end}} {{.BUILD_FLAGS}} -o "{{.OUTPUT}}"'
+    vars:
+      OUT_DIR: build/darwin/build
+      TEMP_DIR: build/darwin/temp
+      BUILD_FLAGS: '{{if eq .DEV "true"}}{{if or .EXTRA_TAGS (eq .OBFUSCATED "true")}}-tags {{if eq .OBFUSCATED "true"}}wails_obfuscated{{if .EXTRA_TAGS}},{{end}}{{end}}{{.EXTRA_TAGS}} {{end}}-buildvcs=false -gcflags=all="-l"{{else}}-tags production{{if eq .OBFUSCATED "true"}},wails_obfuscated{{end}}{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -buildvcs=false -ldflags="-w -s"{{end}}'
+      DEFAULT_OUTPUT: '{{.OUT_DIR}}/{{.APP_NAME}}'
+      OUTPUT: '{{ .OUTPUT | default .DEFAULT_OUTPUT }}'
+    env:
+      GOOS: darwin
+      CGO_ENABLED: 1
+      GOARCH: '{{.ARCH | default ARCH}}'
+      CGO_CFLAGS: "-mmacosx-version-min=12.0"
+      CGO_LDFLAGS: "-mmacosx-version-min=12.0"
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
+
+  build:docker:
+    summary: Cross-compiles for macOS using Docker (for Linux/Windows hosts)
+    internal: true
+    deps:
+      - task: common:build:frontend
+        vars:
+          OBFUSCATED:
+            ref: .OBFUSCATED
+      - task: common:generate:icons
+    preconditions:
+      - sh: docker info > /dev/null 2>&1
+        msg: "Docker is required for cross-compilation. Please install Docker."
+      - sh: docker image inspect {{.CROSS_IMAGE}} > /dev/null 2>&1
+        msg: |
+          Docker image '{{.CROSS_IMAGE}}' not found.
+          Build it first: wails3 task setup:docker
+    cmds:
+      - docker run --rm -v "{{.ROOT_DIR}}:/app" {{.DOCKER_MOUNTS}} -e GOPATH=/go -e APP_NAME="{{.APP_NAME}}" {{if .EXTRA_TAGS}}-e EXTRA_TAGS="{{.EXTRA_TAGS}}"{{end}} {{if eq .OBFUSCATED "true"}}-e OBFUSCATED=true{{end}} {{if .GARBLE_ARGS}}-e GARBLE_ARGS="{{.GARBLE_ARGS}}"{{end}} "{{.CROSS_IMAGE}}" darwin {{.DOCKER_ARCH}}
+      - cmd: docker run --rm -v "{{.ROOT_DIR}}:/app" alpine chown -R $(id -u):$(id -g) /app/bin
+        platforms: [linux, darwin]
+      - cmd: powershell -Command "New-Item -ItemType Directory -Force -Path '{{.OUT_DIR}}' | Out-Null; if (Test-Path '{{.OUTPUT}}') { Remove-Item -Force '{{.OUTPUT}}' -ErrorAction SilentlyContinue }; [System.IO.File]::Move('bin\{{.APP_NAME}}-darwin-{{.DOCKER_ARCH}}','{{.OUTPUT}}'); exit 0"
+        platforms: [windows]
+      - cmd: mkdir -p {{.OUT_DIR}} && mv "bin/{{.APP_NAME}}-darwin-{{.DOCKER_ARCH}}" "{{.OUTPUT}}"
+        platforms: [linux, darwin]
+      - cmd: powershell -Command "Remove-Item -Recurse -Force bin, '-.o' -ErrorAction SilentlyContinue; exit 0"
+        platforms: [windows]
+      - cmd: rm -rf bin -.o
+        platforms: [linux, darwin]
+    vars:
+      OUT_DIR: build/darwin/build
+      TEMP_DIR: build/darwin/temp
+      DOCKER_ARCH: '{{if eq .ARCH "arm64"}}arm64{{else if eq .ARCH "amd64"}}amd64{{else}}arm64{{end}}'
+      DEFAULT_OUTPUT: '{{.OUT_DIR}}/{{.APP_NAME}}'
+      OUTPUT: '{{ .OUTPUT | default .DEFAULT_OUTPUT }}'
+      # Generate Docker volume mounts: Go module cache + go.mod replace directives
+      # Uses wails3 tool docker-mounts for cross-platform compatibility (Windows/Linux/macOS)
+      DOCKER_MOUNTS:
+        sh: 'wails3 tool docker-mounts'
+
+  build:universal:
+    summary: Builds darwin universal binary (arm64 + amd64)
+    # 注意：这里用 cmds 串行执行两次 build，而不是 deps。
+    # deps 会并行跑两个 Docker 交叉编译容器，共用宿主根目录的 bin/ 中间产物目录，
+    # 相互移动/删除会竞争，导致 bin 残留甚至产物丢失。
+    cmds:
+      - task: build
+        vars:
+          ARCH: amd64
+          OUTPUT: "{{.OUT_DIR}}/{{.APP_NAME}}-amd64"
+      - task: build
+        vars:
+          ARCH: arm64
+          OUTPUT: "{{.OUT_DIR}}/{{.APP_NAME}}-arm64"
+      - task: '{{if eq OS "darwin"}}build:universal:lipo:native{{else}}build:universal:lipo:go{{end}}'
+
+  build:universal:lipo:native:
+    summary: Creates universal binary using native lipo (macOS)
+    internal: true
+    cmds:
+      - lipo -create -output "{{.OUT_DIR}}/{{.APP_NAME}}" "{{.OUT_DIR}}/{{.APP_NAME}}-amd64" "{{.OUT_DIR}}/{{.APP_NAME}}-arm64"
+      - rm "{{.OUT_DIR}}/{{.APP_NAME}}-amd64" "{{.OUT_DIR}}/{{.APP_NAME}}-arm64"
+
+  build:universal:lipo:go:
+    summary: Creates universal binary using wails3 tool lipo (Linux/Windows)
+    internal: true
+    cmds:
+      - wails3 tool lipo -output "{{.OUT_DIR}}/{{.APP_NAME}}" -input "{{.OUT_DIR}}/{{.APP_NAME}}-amd64" -input "{{.OUT_DIR}}/{{.APP_NAME}}-arm64"
+      - cmd: powershell -Command "Remove-Item -Force '{{.OUT_DIR}}\{{.APP_NAME}}-amd64','{{.OUT_DIR}}\{{.APP_NAME}}-arm64' -ErrorAction SilentlyContinue; exit 0"
+        platforms: [windows]
+      - cmd: rm -f "{{.OUT_DIR}}/{{.APP_NAME}}-amd64" "{{.OUT_DIR}}/{{.APP_NAME}}-arm64"
+        platforms: [linux, darwin]
+
+  package:
+    summary: Packages the application into a `.app` bundle
+    deps:
+      - task: :generate:build:config
+    cmds:
+      # 打包前先清除上一轮的构建产物（含 build/bin/darwin），避免旧文件残留
+      - task: :clean:package
+      - task: build
+      - task: create:app:bundle
+      - task: '{{if eq OS "darwin"}}codesign:adhoc{{else}}codesign:docker{{end}}'
+      # 非 macOS 主机：把已 ad-hoc 签名的 .app 打成 tar.gz（容器内打包，
+      # 保留可执行位；Windows 上直接复制/压缩会丢失 +x）。
+      - task: archive:tar
+        platforms: [windows, linux]
+      # 非 macOS 主机：容器内（xorriso + libdmg-hfsplus）生成 DMG
+      - task: create:dmg:docker
+        platforms: [windows, linux]
+      # 产物名追加架构信息：二进制 SuperSender → SuperSender-<arch>
+      # （.app 保持原名以保证 Finder 显示名不变；tar.gz/dmg 文件名已含架构）
+      - cmd: powershell -Command "if (Test-Path '{{.OUT_DIR}}\{{.APP_NAME}}-{{.ARCH | default ARCH}}') { Remove-Item -Force '{{.OUT_DIR}}\{{.APP_NAME}}-{{.ARCH | default ARCH}}' -ErrorAction SilentlyContinue }; [System.IO.File]::Move('{{.OUT_DIR}}\{{.APP_NAME}}','{{.OUT_DIR}}\{{.APP_NAME}}-{{.ARCH | default ARCH}}')"
+        platforms: [windows]
+      - cmd: mv -f "{{.OUT_DIR}}/{{.APP_NAME}}" "{{.OUT_DIR}}/{{.APP_NAME}}-{{.ARCH | default ARCH}}"
+        platforms: [linux, darwin]
+
+  package:universal:
+    summary: Packages darwin universal binary (arm64 + amd64)
+    deps:
+      - task: :generate:build:config
+    cmds:
+      # 打包前先清除上一轮的构建产物（含 build/bin/darwin），避免旧文件残留
+      - task: :clean:package
+      - task: build:universal
+      - task: create:app:bundle
+      - task: '{{if eq OS "darwin"}}codesign:adhoc{{else}}codesign:docker{{end}}'
+      # 非 macOS 主机：容器内打 tar.gz，归档名标注 universal（含两个架构）
+      - task: archive:tar
+        vars:
+          DOCKER_ARCH: "universal"
+        platforms: [windows, linux]
+      # 非 macOS 主机：容器内生成 DMG，文件名标注 universal
+      - task: create:dmg:docker
+        vars:
+          DOCKER_ARCH: "universal"
+        platforms: [windows, linux]
+      # 产物名追加架构信息：universal 二进制含 arm64+amd64 双架构，统一标注 universal
+      - cmd: powershell -Command "if (Test-Path '{{.OUT_DIR}}\{{.APP_NAME}}-universal') { Remove-Item -Force '{{.OUT_DIR}}\{{.APP_NAME}}-universal' -ErrorAction SilentlyContinue }; [System.IO.File]::Move('{{.OUT_DIR}}\{{.APP_NAME}}','{{.OUT_DIR}}\{{.APP_NAME}}-universal')"
+        platforms: [windows]
+      - cmd: mv -f "{{.OUT_DIR}}/{{.APP_NAME}}" "{{.OUT_DIR}}/{{.APP_NAME}}-universal"
+        platforms: [linux, darwin]
+
+  package:dmg:
+    summary: Packages the application into a `.dmg` (styled on macOS, plain drag-install on cross hosts)
+    deps:
+      - task: package
+    cmds:
+      - task: create:dmg
+        platforms: [darwin]
+      - task: create:dmg:docker
+        platforms: [windows, linux]
+
+  create:dmg:
+    summary: Creates a configurable `.dmg` from the `.app` bundle (macOS only)
+    platforms: [darwin]
+    cmds:
+      - >-
+        wails3 tool package --format dmg --name "{{.APP_NAME}}" --out "{{.OUT_DIR}}"
+        --background "{{.DMG_BACKGROUND}}"
+        --volume-icon "{{.DMG_VOLUME_ICON}}"
+        --file-icon "{{.DMG_FILE_ICON}}"
+        --window-width "{{.DMG_WINDOW_WIDTH}}"
+        --window-height "{{.DMG_WINDOW_HEIGHT}}"
+        {{if .DMG_FILES}}--files "{{.DMG_FILES}}"{{end}}
+    vars:
+      OUT_DIR: build/darwin/build
+      DMG_BACKGROUND: '{{.DMG_BACKGROUND | default "build/darwin/dmg-background.png"}}'
+      DMG_VOLUME_ICON: '{{.DMG_VOLUME_ICON | default "build/darwin/icon.icns"}}'
+      DMG_FILE_ICON: '{{.DMG_FILE_ICON | default "build/darwin/dmg-file-icon.icns"}}'
+      DMG_WINDOW_WIDTH: '{{.DMG_WINDOW_WIDTH | default "540"}}'
+      DMG_WINDOW_HEIGHT: '{{.DMG_WINDOW_HEIGHT | default "380"}}'
+      DMG_FILES: '{{.DMG_FILES | default ""}}'
+
+  create:dmg:docker:
+    summary: Creates a drag-install `.dmg` from the `.app` bundle inside the cross container
+    internal: true
+    preconditions:
+      - sh: docker info > /dev/null 2>&1
+        msg: "Docker is required to create the macOS dmg. Alternatively run `task darwin:package:dmg` on a Mac."
+      - sh: docker run --rm --entrypoint sh "{{.CROSS_IMAGE}}" -c 'command -v xorriso >/dev/null 2>&1 && command -v dmg >/dev/null 2>&1'
+        msg: |
+          Docker image '{{.CROSS_IMAGE}}' is outdated (DMG tools xorriso/dmg missing).
+          Rebuild it first: wails3 task setup:docker
+    cmds:
+      - cmd: docker run --rm --entrypoint sh -v "{{.ROOT_DIR}}:/app" "{{.CROSS_IMAGE}}" -c "sed -i 's/\r$//' /app/build/docker/darwin-dmg.sh && sh /app/build/docker/darwin-dmg.sh '{{.OUT_DIR}}' '{{.APP_NAME}}' '{{.DOCKER_ARCH}}'"
+    vars:
+      OUT_DIR: build/darwin/build
+      DOCKER_ARCH: '{{if .DOCKER_ARCH}}{{.DOCKER_ARCH}}{{else if eq .ARCH "amd64"}}amd64{{else}}arm64{{end}}'
+
+  create:app:bundle:
+    summary: Creates an `.app` bundle
+    cmds:
+      - task: '{{if eq OS "darwin"}}create:app:bundle:native{{else}}create:app:bundle:docker{{end}}'
+
+  create:app:bundle:native:
+    summary: Assembles the .app bundle with host POSIX tools (macOS)
+    internal: true
+    cmds:
+      - rm -rf "{{.OUT_DIR}}/{{.APP_NAME}}.app"
+      - mkdir -p "{{.OUT_DIR}}/{{.APP_NAME}}.app/Contents/MacOS"
+      - mkdir -p "{{.OUT_DIR}}/{{.APP_NAME}}.app/Contents/Resources"
+      - cp build/darwin/icon.icns "{{.OUT_DIR}}/{{.APP_NAME}}.app/Contents/Resources"
+      - |
+        if [ -f build/darwin/Assets.car ]; then
+          cp build/darwin/Assets.car "{{.OUT_DIR}}/{{.APP_NAME}}.app/Contents/Resources"
+        fi
+      - cp "{{.OUT_DIR}}/{{.APP_NAME}}" "{{.OUT_DIR}}/{{.APP_NAME}}.app/Contents/MacOS"
+      - cp build/darwin/Info.plist "{{.OUT_DIR}}/{{.APP_NAME}}.app/Contents"
+    vars:
+      OUT_DIR: build/darwin/build
+
+  create:app:bundle:docker:
+    summary: Assembles the .app bundle inside the cross-compile container (Windows/Linux hosts)
+    internal: true
+    preconditions:
+      - sh: docker info > /dev/null 2>&1
+        msg: "Docker is required to assemble the macOS bundle."
+      - sh: docker image inspect {{.CROSS_IMAGE}} > /dev/null 2>&1
+        msg: |
+          Docker image '{{.CROSS_IMAGE}}' not found.
+          Build it first: wails3 task setup:docker
+    cmds:
+      # 用仓库内的脚本而不是镜像内置副本：镜像构建时固化的是参考项目版本，
+      # 图标文件名/布局差异不会随仓库更新。sed 防止 Windows 工作区 CRLF。
+      - cmd: docker run --rm --entrypoint sh -v "{{.ROOT_DIR}}:/app" "{{.CROSS_IMAGE}}" -c "sed -i 's/\r$//' /app/build/docker/darwin-bundle.sh && sh /app/build/docker/darwin-bundle.sh '{{.OUT_DIR}}' '{{.APP_NAME}}'"
+    vars:
+      OUT_DIR: build/darwin/build
+
+  codesign:adhoc:
+    summary: Ad-hoc signs the app bundle (macOS only)
+    internal: true
+    cmds:
+      - codesign --force --deep --sign - "{{.OUT_DIR}}/{{.APP_NAME}}.app"
+    vars:
+      OUT_DIR: build/darwin/build
+
+  codesign:docker:
+    summary: Ad-hoc signs the .app bundle with rcodesign in the cross-compile container
+    internal: true
+    preconditions:
+      - sh: docker info > /dev/null 2>&1
+        msg: "Docker is required to ad-hoc sign the macOS bundle. Alternatively run `codesign --force --deep --sign - SuperSender.app` on a Mac."
+      - sh: docker image inspect {{.CROSS_IMAGE}} > /dev/null 2>&1
+        msg: |
+          Docker image '{{.CROSS_IMAGE}}' is outdated (rcodesign missing).
+          Rebuild it first: wails3 task setup:docker
+    cmds:
+      # 无证书参数时 rcodesign 默认执行 ad-hoc 签名：arm64 macOS 启动的硬性要求。
+      # 镜像默认 ENTRYPOINT 是 build.sh，必须 --entrypoint 覆盖为 rcodesign。
+      - docker run --rm --entrypoint rcodesign -v "{{.ROOT_DIR}}:/app" "{{.CROSS_IMAGE}}" sign "/app/{{.OUT_DIR}}/{{.APP_NAME}}.app"
+    vars:
+      OUT_DIR: build/darwin/build
+
+  archive:tar:
+    summary: Packs the signed .app bundle into a tar.gz inside the container (preserves exec bit)
+    internal: true
+    preconditions:
+      - sh: docker info > /dev/null 2>&1
+        msg: "Docker is required to create the macOS archive."
+      - sh: docker image inspect {{.CROSS_IMAGE}} > /dev/null 2>&1
+        msg: |
+          Docker image '{{.CROSS_IMAGE}}' not found.
+          Build it first: wails3 task setup:docker
+    cmds:
+      - cmd: docker run --rm --entrypoint tar -v "{{.ROOT_DIR}}:/app" -w "/app/{{.OUT_DIR}}" "{{.CROSS_IMAGE}}" czf "{{.APP_NAME}}-darwin-{{.DOCKER_ARCH}}.tar.gz" "{{.APP_NAME}}.app"
+    vars:
+      OUT_DIR: build/darwin/build
+      # 调用方(package:universal)可显式传入 DOCKER_ARCH=universal；未传时按 .ARCH 推断
+      DOCKER_ARCH: '{{if .DOCKER_ARCH}}{{.DOCKER_ARCH}}{{else if eq .ARCH "amd64"}}amd64{{else}}arm64{{end}}'
+
+  run:
+    cmds:
+      - mkdir -p "{{.OUT_DIR}}/{{.APP_NAME}}.dev.app/Contents/MacOS"
+      - mkdir -p "{{.OUT_DIR}}/{{.APP_NAME}}.dev.app/Contents/Resources"
+      - cp build/darwin/icon.icns "{{.OUT_DIR}}/{{.APP_NAME}}.dev.app/Contents/Resources"
+      - |
+        if [ -f build/darwin/Assets.car ]; then
+          cp build/darwin/Assets.car "{{.OUT_DIR}}/{{.APP_NAME}}.dev.app/Contents/Resources"
+        fi
+      - cp "{{.OUT_DIR}}/{{.APP_NAME}}" "{{.OUT_DIR}}/{{.APP_NAME}}.dev.app/Contents/MacOS"
+      - cp "build/darwin/Info.dev.plist" "{{.OUT_DIR}}/{{.APP_NAME}}.dev.app/Contents/Info.plist"
+      - codesign --force --deep --sign - "{{.OUT_DIR}}/{{.APP_NAME}}.dev.app"
+      - '"{{.OUT_DIR}}/{{.APP_NAME}}.dev.app/Contents/MacOS/{{.APP_NAME}}"'
+    vars:
+      OUT_DIR: build/darwin/build
+
+  sign:
+    summary: Signs the application bundle with Developer ID
+    desc: |
+      Signs the .app bundle for distribution.
+      Uses signing identity from `wails3 setup` (stored in ~/.config/wails/defaults.yaml).
+      Override with: task darwin:sign -- --identity "Developer ID Application: ..."
+    deps:
+      - task: package
+    cmds:
+      - wails3 tool sign --input "{{.OUT_DIR}}/{{.APP_NAME}}.app" {{.CLI_ARGS}}
+    vars:
+      OUT_DIR: build/darwin/build
+
+  sign:notarize:
+    summary: Signs and notarizes the application bundle
+    desc: |
+      Signs the .app bundle and submits it for notarization.
+      Uses signing identity and keychain profile from `wails3 setup`.
+
+      First-time setup:
+        wails3 setup
+    deps:
+      - task: package
+    cmds:
+      - wails3 tool sign --input "{{.OUT_DIR}}/{{.APP_NAME}}.app" --notarize {{.CLI_ARGS}}
+    vars:
+      OUT_DIR: build/darwin/build

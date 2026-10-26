@@ -1,0 +1,209 @@
+// 全局样式与主题变量入口
+// 深色 / 浅色 双主题通过 .theme-dark / .theme-light 类切换；
+// Element Plus 的深色变量由 dark/css-vars.css 提供，挂到 html.dark 即可生效。
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: "Segoe UI", -apple-system, "Microsoft YaHei", "PingFang SC", sans-serif;
+  font-size: 13px;
+  overflow: hidden;
+}
+
+#app {
+  width: 100vw;
+  height: 100vh;
+}
+
+// 浅色主题（默认）
+.theme-light {
+  --panel-bg: #ffffff;
+  --panel-bg-secondary: #f7f8fa;
+  --panel-bg-hover: #f0f2f5;
+  --panel-border: #e6e8eb;
+  --panel-border-light: #f0f1f3;
+  --panel-text: #1f2937;
+  --panel-text-secondary: #6b7280;
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --accent-soft: rgba(59, 130, 246, 0.1);
+  --status-running: #22c55e;
+  --status-error: #ef4444;
+  --status-listening: #f59e0b;
+  --status-idle: #9ca3af;
+  --bg-recv-line-alt: #f9fafb;
+  --recv-ts: #529b2e;
+  --recv-src: #b88230;
+  --code-bg: #f8f9fb;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --sidebar-bg: #fbfcfe;
+  --topbar-bg: #ffffff;
+  --topbar-border: #e6e8eb;
+  --scrollbar-thumb: rgba(148, 163, 184, 0.35);
+  --scrollbar-thumb-hover: rgba(148, 163, 184, 0.6);
+}
+
+// 深色主题
+.theme-dark {
+  --panel-bg: #1e293b;
+  --panel-bg-secondary: #1a2332;
+  --panel-bg-hover: #273449;
+  --panel-border: #334155;
+  --panel-border-light: #2a3648;
+  --panel-text: #e2e8f0;
+  --panel-text-secondary: #94a3b8;
+  --accent: #4f9eff;
+  --accent-hover: #3b82f6;
+  --accent-soft: rgba(79, 158, 255, 0.14);
+  --status-running: #67c23a;
+  --status-error: #f56c6c;
+  --status-listening: #e6a23c;
+  --status-idle: #909399;
+  --bg-recv-line-alt: #1a2738;
+  --recv-ts: #67c23a;
+  --recv-src: #e6a23c;
+  --code-bg: #141e2b;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --sidebar-bg: #1a2332;
+  --topbar-bg: #1e293b;
+  --topbar-border: #334155;
+  --scrollbar-thumb: rgba(148, 163, 184, 0.25);
+  --scrollbar-thumb-hover: rgba(148, 163, 184, 0.45);
+}
+
+/* 全局滚动条：纤细、半透明、随主题配色 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb, rgba(148, 163, 184, 0.35)) transparent;
+}
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb, rgba(148, 163, 184, 0.35));
+  border-radius: 3px;
+  transition: background 0.15s ease;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover, rgba(148, 163, 184, 0.6));
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+// 通用面板卡片样式（现代化）
+.panel-card {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  padding: 16px;
+  color: var(--panel-text);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.2s ease;
+  &:hover {
+    box-shadow: var(--shadow-md);
+  }
+}
+
+.panel-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--panel-text);
+  margin: 0 0 12px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--panel-border-light);
+}
+
+.panel-section {
+  margin-bottom: 12px;
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+// 小字提示
+.tiny-hint {
+  font-size: 11px;
+  color: var(--panel-text-secondary);
+  margin-top: 4px;
+}
+
+// 状态指示圆点
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  &.running { background: var(--status-running); box-shadow: 0 0 6px var(--status-running); }
+  &.error { background: var(--status-error); box-shadow: 0 0 6px var(--status-error); }
+  &.listening { background: var(--status-listening); box-shadow: 0 0 6px var(--status-listening); }
+  &.idle { background: var(--status-idle); }
+}
+
+// Element Plus 表单在浅色主题下的细节微调
+.theme-light {
+  .el-input__wrapper,
+  .el-textarea__inner,
+  .el-select__wrapper {
+    box-shadow: 0 0 0 1px var(--panel-border) inset;
+  }
+  .el-input__wrapper:hover,
+  .el-select__wrapper:hover {
+    box-shadow: 0 0 0 1px var(--accent) inset;
+  }
+}
+
+// === 弹窗浮层：水平垂直居中 + 毛玻璃 ===
+// 变量挂在 :root / html.dark（el-message 渲染在 body 下，.theme-* 类覆盖不到）
+:root {
+  --glass-bg: rgba(255, 255, 255, 0.97);
+  --glass-border: rgba(255, 255, 255, 0.9);
+}
+html.dark {
+  --glass-bg: rgba(30, 41, 59, 0.92);
+  --glass-border: rgba(148, 163, 184, 0.2);
+}
+
+// el-dialog / el-message-box 统一居中：
+// 用 margin:auto 替代默认 15vh 顶部偏移，居中且超高时仍可滚动不裁顶
+.el-overlay-dialog {
+  display: flex;
+  justify-content: center;
+}
+.el-dialog,
+.el-message-box {
+  margin: auto !important;
+  background: var(--glass-bg);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.25);
+}
+
+// 遮罩层轻微模糊底层界面，增强浮层感
+.el-overlay {
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+// 消息提示浮层同样使用毛玻璃
+.el-message {
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px) saturate(1.3);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-md);
+  border-radius: 10px;
+}
